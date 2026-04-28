@@ -5,6 +5,8 @@ HOST: str = os.getenv("HOST", "0.0.0.0")
 PORT: int = int(os.getenv("PORT", "4000"))
 MODEL_CACHE_DIR: str = os.getenv("MODEL_CACHE_DIR", "./model_cache")
 
-# Must be set before huggingface_hub / transformers are imported
-_hf_endpoint = os.getenv("HF_ENDPOINT", "https://hf-mirror.com")
-os.environ["HF_ENDPOINT"] = _hf_endpoint
+# Only override HF_ENDPOINT when explicitly set (local mirror) so HF Spaces
+# can reach huggingface.co directly without forcing the mirror.
+_hf_endpoint = os.getenv("HF_ENDPOINT")
+if _hf_endpoint:
+    os.environ["HF_ENDPOINT"] = _hf_endpoint
