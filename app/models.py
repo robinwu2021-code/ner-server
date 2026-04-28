@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 class ExtractRequest(BaseModel):
     text: str
     labels: list[str]
-    threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    threshold: float = Field(default=0.6, ge=0.0, le=1.0)
 
 
 class Entity(BaseModel):
