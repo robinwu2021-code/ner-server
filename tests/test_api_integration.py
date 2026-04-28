@@ -6,6 +6,7 @@ Integration tests — require the server to be running.
 """
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pytest
 import requests
@@ -131,3 +132,56 @@ def test_entity_fields_present():
         assert {"text", "label", "score", "start", "end"} <= e.keys()
         assert 0.0 <= e["score"] <= 1.0
         assert e["start"] < e["end"]
+
+
+def test_concurrent_two_requests():
+    payloads = [
+        {
+            "text": (
+                "Jeff Bezos founded Amazon in a garage in Bellevue, Washington in 1994. "
+                "The company started as an online bookstore before expanding into cloud computing "
+                "through AWS, making Amazon one of the most valuable companies in the world."
+            ),
+            "labels": ["person", "organization", "location"],
+        },
+        {
+            "text": (
+                "The World Health Organization declared a new health advisory after researchers "
+                "at Johns Hopkins University and the University of Oxford published findings on "
+                "antibiotic resistance. Dr. Maria Chen led the study, which was funded by the "
+                "Bill & Melinda Gates Foundation."
+            ),
+            "labels": ["person", "organization", "location"],
+        },
+    ]
+
+    results = {}
+    t0 = time.perf_counter()
+
+    def fetch(idx: int, payload: dict):
+        t = time.perf_counter()
+        resp = requests.post(f"{BASE_URL}/extract", json=payload)
+        return idx, payload, resp, time.perf_counter() - t
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(fetch, i, p) for i, p in enumerate(payloads)]
+        for f in as_completed(futures):
+            idx, payload, resp, elapsed = f.result()
+            results[idx] = (payload, resp, elapsed)
+
+    total = time.perf_counter() - t0
+
+    print(f"\n{'─' * 60}")
+    print("[concurrent 2 requests]")
+    for idx in sorted(results):
+        payload, resp, elapsed = results[idx]
+        print(f"  --- request {idx + 1} ---")
+        print(f"  input : {json.dumps(payload, ensure_ascii=False)}")
+        print(f"  output: {json.dumps(resp.json(), ensure_ascii=False)}")
+        print(f"  time  : {elapsed * 1000:.1f} ms")
+    print(f"  total wall time: {total * 1000:.1f} ms")
+
+    for idx in sorted(results):
+        _, resp, _ = results[idx]
+        assert resp.status_code == 200
+        assert len(resp.json()["entities"]) > 0
