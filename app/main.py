@@ -1,9 +1,9 @@
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 
-from app.config import NER_API_BASE_URL
+from app.config import MODEL_CACHE_DIR, MODEL_NAME
 from app.logger import get_logger
 from app.models import ExtractRequest, ExtractResponse
 from app.ner import NERService
@@ -15,9 +15,9 @@ ner_service: NERService | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global ner_service
-    logger.info("Loading NER service, upstream=%s", NER_API_BASE_URL)
-    ner_service = NERService(NER_API_BASE_URL)
-    logger.info("NER service ready")
+    logger.info("Loading model: %s (cache_dir=%s)", MODEL_NAME, MODEL_CACHE_DIR)
+    ner_service = NERService(MODEL_NAME, MODEL_CACHE_DIR)
+    logger.info("Model ready")
     yield
     ner_service = None
 
