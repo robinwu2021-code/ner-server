@@ -1,22 +1,22 @@
-from gliner import GLiNER
+import httpx
+from fastapi import HTTPException
+
 from app.models import Entity
 
 
 class NERService:
-    def __init__(self, model_name: str, cache_dir: str) -> None:
-        self._model = GLiNER.from_pretrained(model_name, cache_dir=cache_dir)
+    def __init__(self, base_url: str) -> None:
+        self._base_url = base_url.rstrip("/")
 
     def extract(self, text: str, labels: list[str], threshold: float) -> list[Entity]:
         if not text or not labels:
             return []
-        raw = self._model.predict_entities(text, labels, threshold=threshold)
-        return [
-            Entity(
-                text=e["text"],
-                label=e["label"],
-                score=round(e["score"], 4),
-                start=e["start"],
-                end=e["end"],
+        try:
+            resp = httpx.post(
+                f"{self._base_url}/extract",
+                json={"text": text, "labels": labels, "threshold": threshold},
             )
-            for e in raw
-        ]
+            resp.raise_for_status()
+        except httpx.HTTPError as e:
+            raise HTTPException(status_code=502, detail=f"Upstream NER API error: {e}")
+        return [Entity(**e) for e in resp.json()["entities"]]

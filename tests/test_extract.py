@@ -24,7 +24,7 @@ def client():
 
 def test_health(client):
     c, _ = client
-    resp = c.get("/health")
+    resp = c.get("/api/v1/health")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
 
@@ -36,7 +36,7 @@ def test_extract_returns_entities(client):
     ]
 
     resp = c.post(
-        "/extract",
+        "/api/v1/extract",
         json={"text": "Apple is a tech company.", "labels": ["organization", "person"]},
     )
 
@@ -51,7 +51,7 @@ def test_extract_empty_text(client):
     c, mock_ner = client
     mock_ner.extract.return_value = []
 
-    resp = c.post("/extract", json={"text": "", "labels": ["person"]})
+    resp = c.post("/api/v1/extract", json={"text": "", "labels": ["person"]})
 
     assert resp.status_code == 200
     assert resp.json()["entities"] == []
@@ -61,7 +61,7 @@ def test_extract_empty_labels(client):
     c, mock_ner = client
     mock_ner.extract.return_value = []
 
-    resp = c.post("/extract", json={"text": "Some text.", "labels": []})
+    resp = c.post("/api/v1/extract", json={"text": "Some text.", "labels": []})
 
     assert resp.status_code == 200
     assert resp.json()["entities"] == []
@@ -72,7 +72,7 @@ def test_extract_threshold_forwarded(client):
     mock_ner.extract.return_value = []
 
     c.post(
-        "/extract",
+        "/api/v1/extract",
         json={"text": "Hello world", "labels": ["person"], "threshold": 0.8},
     )
 
@@ -82,7 +82,7 @@ def test_extract_threshold_forwarded(client):
 def test_extract_invalid_threshold(client):
     c, _ = client
     resp = c.post(
-        "/extract",
+        "/api/v1/extract",
         json={"text": "Hello", "labels": ["person"], "threshold": 1.5},
     )
     assert resp.status_code == 422

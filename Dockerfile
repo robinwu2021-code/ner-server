@@ -9,8 +9,8 @@ COPY app/ app/
 COPY run.py .
 
 ENV HOST=0.0.0.0
-ENV PORT=7860
-ENV MODEL_CACHE_DIR=/app/model_cache
+ENV PORT=4000
+ENV NER_API_BASE_URL=http://127.0.0.1:4000
 
 EXPOSE 7860
 

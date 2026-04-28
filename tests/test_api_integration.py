@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pytest
 import requests
 
-BASE_URL = "http://localhost:4000"
+BASE_URL = "http://localhost:4000/api/v1"
 
 
 def _call(method: str, path: str, payload: dict | None = None) -> tuple[requests.Response, float]:
@@ -160,7 +160,7 @@ def test_concurrent_two_requests():
 
     def fetch(idx: int, payload: dict):
         t = time.perf_counter()
-        resp = requests.post(f"{BASE_URL}/extract", json=payload)
+        resp = requests.post(f"{BASE_URL}/extract", json=payload)  # BASE_URL already includes /api/v1
         return idx, payload, resp, time.perf_counter() - t
 
     with ThreadPoolExecutor(max_workers=2) as pool:
