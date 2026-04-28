@@ -41,8 +41,12 @@ def test_health():
 
 def test_extract_person_and_org():
     payload = {
-        "text": "Elon Musk founded SpaceX in 2002.",
-        "labels": ["person", "organization"],
+        "text": (
+            "Elon Musk, the CEO of Tesla and founder of SpaceX, announced a new partnership "
+            "with NASA last Tuesday. The deal, signed at Kennedy Space Center in Florida, "
+            "will see SpaceX supply rockets for upcoming lunar missions planned by NASA over the next decade."
+        ),
+        "labels": ["person", "organization", "location"],
     }
     resp, elapsed = _call("POST", "/extract", payload)
     _print("extract person & org", payload, resp, elapsed)
@@ -59,8 +63,13 @@ def test_extract_person_and_org():
 
 def test_extract_with_high_threshold():
     payload = {
-        "text": "Barack Obama visited Paris.",
-        "labels": ["person", "location"],
+        "text": (
+            "Former US President Barack Obama delivered a keynote speech at the United Nations "
+            "headquarters in New York City on Monday, addressing climate change alongside French "
+            "President Emmanuel Macron and German Chancellor Olaf Scholz. The event drew leaders "
+            "from over fifty countries including Japan, Brazil, and South Africa."
+        ),
+        "labels": ["person", "location", "organization"],
         "threshold": 0.9,
     }
     resp, elapsed = _call("POST", "/extract", payload)
@@ -72,7 +81,7 @@ def test_extract_with_high_threshold():
 
 
 def test_extract_empty_text_returns_empty():
-    payload = {"text": "", "labels": ["person"]}
+    payload = {"text": "", "labels": ["person", "organization", "location"]}
     resp, elapsed = _call("POST", "/extract", payload)
     _print("extract empty text", payload, resp, elapsed)
 
@@ -81,7 +90,14 @@ def test_extract_empty_text_returns_empty():
 
 
 def test_extract_empty_labels_returns_empty():
-    payload = {"text": "Apple is great.", "labels": []}
+    payload = {
+        "text": (
+            "Apple Inc. reported record quarterly earnings on Thursday, with CEO Tim Cook "
+            "crediting strong iPhone sales in markets across Europe and Southeast Asia. "
+            "The company also announced plans to expand its research center in Austin, Texas."
+        ),
+        "labels": [],
+    }
     resp, elapsed = _call("POST", "/extract", payload)
     _print("extract empty labels", payload, resp, elapsed)
 
@@ -90,7 +106,7 @@ def test_extract_empty_labels_returns_empty():
 
 
 def test_extract_invalid_threshold_rejected():
-    payload = {"text": "Hello", "labels": ["person"], "threshold": 2.0}
+    payload = {"text": "Hello world, this is a simple test sentence.", "labels": ["person"], "threshold": 2.0}
     resp, elapsed = _call("POST", "/extract", payload)
     _print("extract invalid threshold", payload, resp, elapsed)
 
@@ -99,8 +115,13 @@ def test_extract_invalid_threshold_rejected():
 
 def test_entity_fields_present():
     payload = {
-        "text": "Tim Cook leads Apple.",
-        "labels": ["person", "organization"],
+        "text": (
+            "Tim Cook, CEO of Apple, met with Sundar Pichai from Google and Satya Nadella "
+            "from Microsoft at a technology summit held in San Francisco last week. The three "
+            "executives discussed artificial intelligence regulation and data privacy policies "
+            "being proposed by the European Union and the US Congress."
+        ),
+        "labels": ["person", "organization", "location"],
     }
     resp, elapsed = _call("POST", "/extract", payload)
     _print("extract field check", payload, resp, elapsed)
