@@ -1,18 +1,23 @@
+import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from app.config import NER_API_BASE_URL
+from app.logger import get_logger
 from app.models import ExtractRequest, ExtractResponse
 from app.ner import NERService
 
+logger = get_logger("ner.api")
 ner_service: NERService | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global ner_service
+    logger.info("Loading NER service, upstream=%s", NER_API_BASE_URL)
     ner_service = NERService(NER_API_BASE_URL)
+    logger.info("NER service ready")
     yield
     ner_service = None
 
@@ -27,5 +32,19 @@ def health():
 
 @app.post("/api/v1/extract", response_model=ExtractResponse)
 def extract(req: ExtractRequest):
+    logger.info(
+        "extract request | text_len=%d labels=%s threshold=%s",
+        len(req.text),
+        req.labels,
+        req.threshold,
+    )
+    t0 = time.perf_counter()
     entities = ner_service.extract(req.text, req.labels, req.threshold)
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+
+    logger.info(
+        "extract response | entities=%s elapsed=%.1fms",
+        [{"text": e.text, "label": e.label, "score": e.score} for e in entities],
+        elapsed_ms,
+    )
     return ExtractResponse(entities=entities)
