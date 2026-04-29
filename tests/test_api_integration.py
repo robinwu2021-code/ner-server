@@ -11,7 +11,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pytest
 import requests
 
-BASE_URL = "http://localhost:4000/api/v1"
+import os
+BASE_URL = os.getenv("NER_BASE_URL", "http://localhost:4000/api/v1")
+HF_BASE_URL = "https://robinwu-nerserver.hf.space/api/v1"
 
 
 def _call(method: str, path: str, payload: dict | None = None) -> tuple[requests.Response, float]:
