@@ -51,7 +51,7 @@ Base URL: `https://<your-hf-username>-ner-server.hf.space`
 
 | Variable          | Default                       | Description                        |
 |-------------------|-------------------------------|------------------------------------|
-| `MODEL_NAME`      | `urchade/gliner_medium-v2.1`  | GLiNER model name                  |
+| `MODEL_NAME`      | `knowledgator/gliner-multitask-large-v0.5` | GLiNER model name     |
 | `PORT`            | `7860`                        | Listen port (fixed by HF Spaces)   |
 | `MODEL_CACHE_DIR` | `/app/model_cache`            | Model cache path                   |
 | `HF_ENDPOINT`     | *(huggingface.co)*            | Override with a custom mirror URL  |

@@ -1,6 +1,6 @@
 import os
 
-MODEL_NAME: str = os.getenv("MODEL_NAME", "urchade/gliner_medium-v2.1")
+MODEL_NAME: str = os.getenv("MODEL_NAME", "knowledgator/gliner-multitask-large-v0.5")
 MODEL_CACHE_DIR: str = os.getenv("MODEL_CACHE_DIR", "./model_cache")
 HOST: str = os.getenv("HOST", "0.0.0.0")
 PORT: int = int(os.getenv("PORT", "4000"))
