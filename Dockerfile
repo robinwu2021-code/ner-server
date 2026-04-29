@@ -5,6 +5,12 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-download model at build time so cold-start needs no network access.
+# The image will be ~1.5 GB but startup is instant.
+RUN python -c "\
+from gliner import GLiNER; \
+GLiNER.from_pretrained('urchade/gliner_medium-v2.1', cache_dir='/app/model_cache')"
+
 COPY app/ app/
 COPY run.py .
 

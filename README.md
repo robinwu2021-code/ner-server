@@ -14,13 +14,23 @@ Zero-shot Named Entity Recognition HTTP API powered by [GLiNER](https://github.c
 
 ## API
 
-### `POST /extract`
+Base URL: `https://<your-hf-username>-ner-server.hf.space`
+
+### `GET /api/v1/health`
+
+```json
+{"status": "ok"}
+```
+
+### `POST /api/v1/extract`
+
+**Request**
 
 ```json
 {
-  "text": "Elon Musk founded SpaceX in 2002.",
-  "labels": ["person", "organization"],
-  "threshold": 0.5
+  "text": "Elon Musk founded SpaceX in Hawthorne, California.",
+  "labels": ["person", "organization", "location"],
+  "threshold": 0.6
 }
 ```
 
@@ -29,23 +39,24 @@ Zero-shot Named Entity Recognition HTTP API powered by [GLiNER](https://github.c
 ```json
 {
   "entities": [
-    {"text": "Elon Musk", "label": "person",       "score": 0.98, "start": 0,  "end": 9},
-    {"text": "SpaceX",    "label": "organization", "score": 0.97, "start": 18, "end": 24}
+    {"text": "Elon Musk",   "label": "person",       "score": 0.98, "start": 0,  "end": 9 },
+    {"text": "SpaceX",      "label": "organization", "score": 0.97, "start": 18, "end": 24},
+    {"text": "Hawthorne",   "label": "location",     "score": 0.91, "start": 28, "end": 37},
+    {"text": "California",  "label": "location",     "score": 0.95, "start": 39, "end": 49}
   ]
 }
 ```
 
-### `GET /health`
-
-```json
-{"status": "ok"}
-```
-
 ## Environment Variables
 
-| Variable        | Default                        | Description          |
-|-----------------|-------------------------------|----------------------|
-| `MODEL_NAME`    | `urchade/gliner_medium-v2.1`  | GLiNER model name    |
-| `PORT`          | `7860`                        | Listen port          |
-| `MODEL_CACHE_DIR` | `./model_cache`             | Local model cache    |
-| `HF_ENDPOINT`   | *(huggingface.co)*            | Custom HF mirror URL |
+| Variable          | Default                       | Description                        |
+|-------------------|-------------------------------|------------------------------------|
+| `MODEL_NAME`      | `urchade/gliner_medium-v2.1`  | GLiNER model name                  |
+| `PORT`            | `7860`                        | Listen port (fixed by HF Spaces)   |
+| `MODEL_CACHE_DIR` | `/app/model_cache`            | Model cache path                   |
+| `HF_ENDPOINT`     | *(huggingface.co)*            | Override with a custom mirror URL  |
+
+## Interactive Docs
+
+- Swagger UI: `/docs`
+- ReDoc: `/redoc`
