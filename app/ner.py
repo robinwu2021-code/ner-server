@@ -1,19 +1,31 @@
 """
-NER 服务层 — 双模型路由 + 兜底策略
+NER 服务层 — 双模型路由 + 兜底合并
 ──────────────────────────────────────────────────────────────────────────────
 语言检测（两层）：
   1. Unicode 脚本比例：快速，适合中文 / 阿拉伯文等脚本明显的语言
   2. langdetect 库兜底：覆盖纯英文及边界文本
 
-路由 & 兜底规则：
-  ┌──────────┬──────────────────┬──────────────────────────────┐
-  │ language │ 主模型           │ 兜底条件                     │
-  ├──────────┼──────────────────┼──────────────────────────────┤
-  │ zh       │ ChineseBERT      │ 实体数=0 → 补充 GLiNER 结果  │
-  │ en / ar  │ GLiNER           │ 实体数=0 → 补充 BERT 结果    │
-  │ mixed    │ GLiNER + BERT    │ 同时运行两个模型，结果合并   │
-  │ auto     │ 先检测语言再路由 │                              │
-  └──────────┴──────────────────┴──────────────────────────────┘
+充分性判定（替代粗暴的 ==0）：
+  expected_min = max( length_floor, label_floor )
+    length_floor: text<30→1, <100→2, <300→3, ≥300→4
+    label_floor : ⌈len(labels)/3⌉，无 labels 时为 1
+  主模型实体数 < expected_min  → 触发兜底
+  调用方可在请求里直接传 min_entities 覆盖启发式
+
+兜底合并（关键：相加而非替换）：
+  1. 主模型先跑一遍，结果保留
+  2. 若不充分，兜底模型再跑一遍
+  3. 两份结果合并 → 按 (start, end) 去重，同一 span 保留得分最高的
+
+路由：
+  ┌──────────┬──────────────────────────┐
+  │ language │ 主模型 → 兜底模型        │
+  ├──────────┼──────────────────────────┤
+  │ zh       │ BERT-Chinese → GLiNER    │
+  │ en / ar  │ GLiNER → BERT-Chinese    │
+  │ mixed    │ 两个模型同时运行后合并   │
+  │ auto     │ 先检测语言再路由         │
+  └──────────┴──────────────────────────┘
 """
 
 import threading
@@ -254,18 +266,38 @@ class NERService:
                     self._zh_backend = ChineseBERTBackend(self._zh_name, self._cache_dir)
         return self._zh_backend
 
+    # ── 充分性判定 ────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _expected_min(text: str, labels: list[str]) -> int:
+        """
+        启发式：根据文本长度和标签数计算最小期望实体数。
+        取 length_floor 与 label_floor 中的较大值。
+        """
+        n = len(text)
+        if   n < 30:   length_floor = 1
+        elif n < 100:  length_floor = 2
+        elif n < 300:  length_floor = 3
+        else:          length_floor = 4
+
+        label_floor = max(1, (len(labels) + 2) // 3) if labels else 1
+        return max(length_floor, label_floor)
+
     # ── 兜底合并 ──────────────────────────────────────────────────────────────
 
+    @staticmethod
     def _merge(
-        self,
         primary: tuple[list[Entity], list[str]],
         fallback: tuple[list[Entity], list[str]],
     ) -> tuple[list[Entity], list[str]]:
-        """合并两个模型的结果，去重后按位置排序。"""
+        """
+        相加合并：保留主模型所有结果，再加上兜底模型的结果，
+        按 (start, end) 去重（同一 span 保留得分最高），按位置排序。
+        """
         p_ents, p_labels = primary
         f_ents, f_labels = fallback
         merged = _deduplicate(p_ents + f_ents)
-        used = list(dict.fromkeys(p_labels + f_labels))  # 保序去重
+        used = list(dict.fromkeys(p_labels + f_labels))   # 保序去重
         return merged, used
 
     # ── 主入口 ────────────────────────────────────────────────────────────────
@@ -276,42 +308,52 @@ class NERService:
         labels: list[str],
         threshold: float,
         language: str = "auto",
+        min_entities: int | None = None,
     ) -> tuple[list[Entity], list[str]]:
         """
         返回 (entities, labels_used)。
 
-        路由逻辑：
+        路由：
           auto  → 检测语言 → 路由
-          zh    → BERT 主，GLiNER 兜底（主模型无结果时补充）
-          en/ar → GLiNER 主，BERT 兜底（主模型无结果时补充）
-          mixed → 两模型同时运行，结果合并去重
+          zh    → BERT 主，GLiNER 兜底
+          en/ar → GLiNER 主，BERT 兜底
+          mixed → 两模型同时运行 → 合并
+
+        兜底触发条件（zh / en / ar）：
+          主模型实体数 < expected_min（默认启发式，可由 min_entities 覆盖）
+        触发后：主结果 + 兜底结果一并返回，按 span 去重。
         """
         if not text:
             return [], labels
 
         lang = language if language != "auto" else detect_language(text)
 
+        # mixed 永远跑双模型并合并
         if lang == "mixed":
-            # 同时运行两个模型，合并结果
-            en_result = self._en().predict(text, labels, threshold)
-            zh_result = self._zh().predict(text, labels, threshold)
-            return self._merge(en_result, zh_result)
+            return self._merge(
+                self._en().predict(text, labels, threshold),
+                self._zh().predict(text, labels, threshold),
+            )
 
+        # 单语言：选主模型 + 兜底模型
         if lang == "zh":
-            primary_result = self._zh().predict(text, labels, threshold)
-            if not primary_result[0]:       # 主模型无结果 → GLiNER 兜底
-                fallback_result = self._en().predict(text, labels, threshold)
-                if fallback_result[0]:
-                    return fallback_result
+            primary, fallback = self._zh(), self._en()
+        else:  # en / ar
+            primary, fallback = self._en(), self._zh()
+
+        primary_result = primary.predict(text, labels, threshold)
+
+        # 充分性判定
+        threshold_n = (
+            min_entities if min_entities is not None
+            else self._expected_min(text, labels)
+        )
+        if len(primary_result[0]) >= threshold_n:
             return primary_result
 
-        # en / ar / 其他
-        primary_result = self._en().predict(text, labels, threshold)
-        if not primary_result[0]:           # 主模型无结果 → BERT 兜底
-            fallback_result = self._zh().predict(text, labels, threshold)
-            if fallback_result[0]:
-                return fallback_result
-        return primary_result
+        # 不充分 → 兜底相加
+        fallback_result = fallback.predict(text, labels, threshold)
+        return self._merge(primary_result, fallback_result)
 
     def warmup(self) -> None:
         """启动时预热两个模型，首个请求无需等待。"""

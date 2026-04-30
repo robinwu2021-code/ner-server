@@ -48,11 +48,12 @@ def health():
 @app.post("/api/v1/extract", response_model=ExtractResponse, tags=["NER"])
 def extract(req: ExtractRequest):
     logger.info(
-        "extract request | text_len=%d labels=%s threshold=%s language=%s",
+        "extract request | text_len=%d labels=%s threshold=%s language=%s min_entities=%s",
         len(req.text),
         req.labels or "(default)",
         req.threshold,
         req.language,
+        req.min_entities,
     )
     t0 = time.perf_counter()
     entities, labels_used = ner_service.extract(
@@ -60,6 +61,7 @@ def extract(req: ExtractRequest):
         req.labels,
         req.threshold,
         language=req.language,
+        min_entities=req.min_entities,
     )
     elapsed_ms = (time.perf_counter() - t0) * 1000
 

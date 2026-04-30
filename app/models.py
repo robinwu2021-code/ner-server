@@ -35,6 +35,17 @@ class ExtractRequest(BaseModel):
         ),
     )
 
+    min_entities: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Minimum entity count for the primary model to be considered 'sufficient'. "
+            "If the primary returns fewer than this, the fallback model is invoked and "
+            "its results are MERGED with the primary's (not replaced). "
+            "Leave null/omit to auto-calculate from text length and label count."
+        ),
+    )
+
 
 class Entity(BaseModel):
     text: str
