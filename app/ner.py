@@ -216,8 +216,11 @@ class ChineseBERTBackend(_Backend):
 
             std_label = BERT_TYPE_TO_LABEL.get(bert_type, bert_type)
             labels_seen.add(std_label)
+            # Chinese BERT tokenizer 会在子词间插入空格（"马 云"），
+            # 直接用 start/end 从原文切片，避免空格污染
+            entity_text = text[r["start"]:r["end"]]
             entities.append(Entity(
-                text=r["word"],
+                text=entity_text,
                 label=std_label,
                 score=round(score, 4),
                 start=r["start"],
