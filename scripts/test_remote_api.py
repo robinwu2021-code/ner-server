@@ -237,6 +237,72 @@ def check_health() -> tuple[bool, float, str]:
         return False, (time.perf_counter() - t0) * 1000, str(e)
 
 
+# ── 三档匹配 ──────────────────────────────────────────────────────────────────
+#
+#   exact   完全相等                 e.g. "Biden" == "Biden"
+#   partial 一方包含另一方           e.g. "President Biden" 包含 "Biden"
+#                                         "济南" 被 "济南市" 包含
+#   miss    都不满足
+#
+# 这是为了解决严格相等带来的"假阴性"——模型边界差一点也算未命中。
+
+def match_one(expected: str, returned_texts: list[str]) -> tuple[str, str]:
+    """返回 (level, matched_text)。level ∈ {'exact','partial','miss'}"""
+    for r in returned_texts:
+        if r == expected:
+            return "exact", r
+    for r in returned_texts:
+        if expected in r or r in expected:
+            return "partial", r
+    return "miss", ""
+
+
+@dataclass
+class CaseMetrics:
+    expected_n: int
+    returned_n: int
+    tp_exact: int = 0
+    tp_partial: int = 0
+    miss_list: list[str] = field(default_factory=list)
+    matched_pairs: list[tuple[str, str, str]] = field(default_factory=list)  # (expected, level, returned)
+
+    @property
+    def tp(self) -> int:
+        return self.tp_exact + self.tp_partial
+
+    @property
+    def precision(self) -> float:
+        return self.tp / self.returned_n if self.returned_n else 0.0
+
+    @property
+    def recall(self) -> float:
+        return self.tp / self.expected_n if self.expected_n else 1.0
+
+    @property
+    def f1(self) -> float:
+        p, r = self.precision, self.recall
+        return 2 * p * r / (p + r) if (p + r) else 0.0
+
+
+def evaluate(case: dict, res: CallResult) -> CaseMetrics | None:
+    expected = case.get("expected", set())
+    if not expected:
+        return None
+    returned_texts = [e["text"] for e in res.entities]
+    m = CaseMetrics(expected_n=len(expected), returned_n=len(returned_texts))
+    for exp in expected:
+        level, found = match_one(exp, returned_texts)
+        if level == "exact":
+            m.tp_exact += 1
+            m.matched_pairs.append((exp, "exact", found))
+        elif level == "partial":
+            m.tp_partial += 1
+            m.matched_pairs.append((exp, "partial", found))
+        else:
+            m.miss_list.append(exp)
+    return m
+
+
 # ── 报告生成 ──────────────────────────────────────────────────────────────────
 
 def write_report(results: list[tuple[dict, CallResult]], health: tuple[bool, float, str]):
@@ -250,25 +316,62 @@ def write_report(results: list[tuple[dict, CallResult]], health: tuple[bool, flo
     w(f"- 健康检查：{'✓ OK' if ok else '✗ FAIL'} ({hms:.0f}ms) — {hbody}\n")
     w(f"- 用例总数：{len(results)}\n\n")
 
+    # ── 评测说明 ──────────────────────────────────────────────────────────────
+    w("## 评测口径\n\n")
+    w("- **返回数**：API 实际返回的实体个数（输出量）\n")
+    w("- **期望数**：用例作者预先列出的正确答案个数（标准答案）\n")
+    w("- **命中**：把每个期望项分到三档之一\n")
+    w("    - `exact` ：完全相等（如 `Biden` == `Biden`）\n")
+    w("    - `partial`：一方包含另一方（如 `President Biden` 包含 `Biden`、`济南` 被 `济南市` 包含），算半对，**仍计入 TP**\n")
+    w("    - `miss`  ：两种都不满足\n")
+    w("- **指标公式**\n")
+    w("    - Precision = TP / 返回数  （模型说的话有多少是有效的）\n")
+    w("    - Recall    = TP / 期望数  （应该说的话说了多少）\n")
+    w("    - F1        = 2·P·R / (P+R)\n\n")
+
     # ── 汇总表 ────────────────────────────────────────────────────────────────
     w("## 一、汇总\n\n")
-    w("| 用例 | 描述 | HTTP | 实体数 | 召回 | 耗时 |\n")
-    w("|---|---|---|---|---|---|\n")
+    w("| 用例 | 描述 | HTTP | 返回数 | 期望数 | TP(精/部) | P | R | F1 | 耗时 |\n")
+    w("|---|---|---|---:|---:|---|---:|---:|---:|---:|\n")
     total_ms = 0.0
     pass_n = 0
+    aggregate = {"tp_exact": 0, "tp_partial": 0, "returned": 0, "expected": 0}
     for case, res in results:
-        expected = case.get("expected", set())
-        found = {e["text"] for e in res.entities}
-        hit = len(expected & found)
-        recall = f"{hit}/{len(expected)}" if expected else "—"
         ok_mark = "✓" if res.status == 200 else "✗"
+        m = evaluate(case, res)
+        if m is None:
+            tp_cell = "—"
+            p_cell = r_cell = f1_cell = "—"
+            ret_n = len(res.entities)
+            exp_n = "—"
+        else:
+            tp_cell = f"{m.tp} ({m.tp_exact}/{m.tp_partial})"
+            p_cell  = f"{m.precision*100:.0f}%"
+            r_cell  = f"{m.recall*100:.0f}%"
+            f1_cell = f"{m.f1*100:.0f}%"
+            ret_n = m.returned_n
+            exp_n = m.expected_n
+            aggregate["tp_exact"]   += m.tp_exact
+            aggregate["tp_partial"] += m.tp_partial
+            aggregate["returned"]   += m.returned_n
+            aggregate["expected"]   += m.expected_n
         w(f"| **{case['id']}** | {case['description']} | {ok_mark} {res.status} | "
-          f"{len(res.entities)} | {recall} | {res.elapsed_ms:.0f}ms |\n")
+          f"{ret_n} | {exp_n} | {tp_cell} | {p_cell} | {r_cell} | {f1_cell} | "
+          f"{res.elapsed_ms:.0f}ms |\n")
         if res.status == 200:
             pass_n += 1
         total_ms += res.elapsed_ms
-    w(f"\n- 通过率：**{pass_n}/{len(results)}**\n")
-    w(f"- 累计耗时：**{total_ms:.0f}ms**（平均 {total_ms/len(results):.0f}ms/请求）\n\n")
+
+    # 整体微平均
+    tp_total = aggregate["tp_exact"] + aggregate["tp_partial"]
+    micro_p  = tp_total / aggregate["returned"] if aggregate["returned"] else 0.0
+    micro_r  = tp_total / aggregate["expected"] if aggregate["expected"] else 0.0
+    micro_f1 = 2*micro_p*micro_r / (micro_p+micro_r) if (micro_p+micro_r) else 0.0
+    w(f"\n- 通过率：**{pass_n}/{len(results)}**（HTTP 200）\n")
+    w(f"- 累计耗时：**{total_ms:.0f}ms**（平均 {total_ms/len(results):.0f}ms/请求）\n")
+    w(f"- 整体微平均：**P={micro_p*100:.0f}%  R={micro_r*100:.0f}%  F1={micro_f1*100:.0f}%**\n")
+    w(f"  （TP={tp_total}（精确 {aggregate['tp_exact']} + 部分 {aggregate['tp_partial']}），"
+      f"返回总 {aggregate['returned']}，期望总 {aggregate['expected']}）\n\n")
 
     # ── 分组详情 ──────────────────────────────────────────────────────────────
     groups: dict[str, list] = {}
@@ -299,15 +402,20 @@ def write_report(results: list[tuple[dict, CallResult]], health: tuple[bool, flo
             else:
                 w("_未识别到实体_\n")
 
-            expected = case.get("expected", set())
-            if expected:
-                found = {e["text"] for e in res.entities}
-                hits   = expected & found
-                misses = expected - found
-                w(f"\n**期望命中** {len(hits)}/{len(expected)}：")
-                w(", ".join(f"`{x}`" for x in expected) + "  \n")
-                if misses:
-                    w(f"**未命中**：{', '.join(f'`{x}`' for x in misses)}  \n")
+            m = evaluate(case, res)
+            if m is not None:
+                w(f"\n**指标**：返回 {m.returned_n}，期望 {m.expected_n}，"
+                  f"TP={m.tp}（exact={m.tp_exact}，partial={m.tp_partial}）  \n")
+                w(f"**P / R / F1** = {m.precision*100:.0f}% / "
+                  f"{m.recall*100:.0f}% / {m.f1*100:.0f}%  \n\n")
+
+                if m.matched_pairs:
+                    w("**命中明细**\n\n| 期望 | 档位 | 实际命中 |\n|---|---|---|\n")
+                    for exp, level, found in m.matched_pairs:
+                        icon = "✓" if level == "exact" else "≈"
+                        w(f"| `{exp}` | {icon} {level} | `{found}` |\n")
+                if m.miss_list:
+                    w(f"\n**未命中**：{', '.join(f'`{x}`' for x in m.miss_list)}  \n")
 
             mnc = case.get("must_not_contain", set())
             if mnc:
