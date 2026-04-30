@@ -22,29 +22,45 @@ async def lifespan(app: FastAPI):
     ner_service = None
 
 
-app = FastAPI(title="NER API", lifespan=lifespan)
+app = FastAPI(
+    title="NER API",
+    description=(
+        "Zero-shot Named Entity Recognition powered by GLiNER. "
+        "Supports English, Chinese, Arabic and mixed-language text. "
+        "Labels are optional — omit them to use built-in bilingual defaults."
+    ),
+    version="2.0.0",
+    lifespan=lifespan,
+)
 
 
-@app.get("/api/v1/health")
+@app.get("/api/v1/health", tags=["System"])
 def health():
     return {"status": "ok"}
 
 
-@app.post("/api/v1/extract", response_model=ExtractResponse)
+@app.post("/api/v1/extract", response_model=ExtractResponse, tags=["NER"])
 def extract(req: ExtractRequest):
     logger.info(
-        "extract request | text_len=%d labels=%s threshold=%s",
+        "extract request | text_len=%d labels=%s threshold=%s language=%s",
         len(req.text),
-        req.labels,
+        req.labels or "(default)",
         req.threshold,
+        req.language,
     )
     t0 = time.perf_counter()
-    entities = ner_service.extract(req.text, req.labels, req.threshold)
+    entities, labels_used = ner_service.extract(
+        req.text,
+        req.labels,
+        req.threshold,
+        language=req.language,
+    )
     elapsed_ms = (time.perf_counter() - t0) * 1000
 
     logger.info(
-        "extract response | entities=%s elapsed=%.1fms",
-        [{"text": e.text, "label": e.label, "score": e.score} for e in entities],
+        "extract response | entities=%d elapsed=%.1fms labels_used=%d",
+        len(entities),
         elapsed_ms,
+        len(labels_used),
     )
-    return ExtractResponse(entities=entities)
+    return ExtractResponse(entities=entities, labels_used=labels_used)
